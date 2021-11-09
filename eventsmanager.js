@@ -1,3 +1,4 @@
+// Dependencies
 const { timeEventSchema, WarningSchema, MutedMemberSchema } = require('../database/models'),
 	ms = require('ms'),
 	{ Embed, time: { getTotalTime } } = require('../utils'),
@@ -6,12 +7,14 @@ const { timeEventSchema, WarningSchema, MutedMemberSchema } = require('../databa
 module.exports = async (bot) => {
 	const events = await timeEventSchema.find({});
 
-
+	// loop every 3 seconds checking each item
 	setInterval(async () => {
-
+		// make sure there are events
 		if (events.length == 0) return;
 
+		// check each event
 		for (const event of events) {
+			// get settings for the guild
 			const guild = bot.guilds.cache.get(event.guildID);
 			const user = await bot.users.fetch(event.userID);
 
@@ -20,6 +23,7 @@ module.exports = async (bot) => {
 				case 'ban': {
 					bot.logger.debug(`Unbanning ${user.tag} in guild: ${guild.id}.`);
 
+					// unban user from guild
 					try {
 						const bans = await bot.guilds.cache.get(event.guildID).bans.fetch();
 						if (bans.size == 0) return;
@@ -38,6 +42,7 @@ module.exports = async (bot) => {
 				case 'reminder': {
 					bot.logger.debug(`Reminding ${bot.users.cache.get(event.userID).tag}`);
 
+					// Message user about reminder
 					const attachment = new MessageAttachment('./src/assets/imgs/Timer.png', 'Timer.png');
 					const embed = new Embed(bot, guild)
 						.setTitle('fun/reminder:TITLE')
@@ -55,15 +60,21 @@ module.exports = async (bot) => {
 				case 'mute': {
 					bot.logger.debug(`Unmuting ${user.tag} in guild: ${guild.id}.`);
 
+					// get muted role
 					const muteRole = guild.roles.cache.get(guild.settings.MutedRole);
 					if (!muteRole) return bot.logger.error(`Muted role is missing in guild: ${guild.id}.`);
+
+					// get member to unmute
 					const member = await guild.members.fetch(user.id);
 
+					// delete muted member from database (even if they not in guild anymore)
 					await MutedMemberSchema.findOneAndRemove({ userID: member.user.id,	guildID: event.guildID });
 					if (!member) return bot.logger.error(`Member is no longer in guild: ${bot.guilds.cache.get(event.guildID).id}.`);
 
+					// update member
 					try {
 						await member.roles.remove(muteRole);
+						// if in a VC unmute them
 						if (member.voice.channelID) member.voice.setMute(false);
 						bot.channels.cache.get(event.channelID)?.success('MODERATION/SUCCESSFULL_UNMUTE', member.user).then(m => m.timedDelete({ timeout: 3000 }));
 					} catch (err) {
@@ -73,18 +84,22 @@ module.exports = async (bot) => {
 					break;
 				}
 				case 'warn':
+					// remove warning
 					try {
 						const res = await WarningSchema.find({ userID: event.userID, guildID: event.guildID });
 						console.log(res);
+						// find the timed warning
 						for (const warn of res) {
 							const possibleTime = warn.Reason.split(' ')[0];
 							if (possibleTime.endsWith('d') || possibleTime.endsWith('h') || possibleTime.endsWith('m') || possibleTime.endsWith('s')) {
 								const time = getTotalTime(possibleTime, this);
+								// make sure time is correct
 								if (time) {
 									const a = new Date(warn.IssueDate).getTime() + parseInt(time);
 									const b = new Date(event.time).getTime();
 									console.log(new Date(Math.abs(a, b)).getSeconds());
 									if (Math.abs(a, b) <= 4000) {
+										// warning found, time to delete
 										await WarningSchema.findByIdAndRemove(warn._id);
 									}
 								}
@@ -96,13 +111,15 @@ module.exports = async (bot) => {
 					}
 					break;
 				case 'premium': {
-
+					// code block
 					break;
 				}
 				default:
+					// code block
 					bot.logger.error(`Invalid event type: ${event.type}.`);
 				}
 			}
+			// delete from 'cache'
 			events.splice(events.indexOf(event), 1);
 		}
 	}, 3000);
